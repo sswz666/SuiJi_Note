@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      关键：直接用系统自带的「对话框」主题，而不是自己拼一个透明全屏窗口。
+      Theme.DeviceDefault.Light.Dialog 自带：
+        windowIsFloating   = true            -> 浮动窗口，不会走「全屏 Activity」的启动缩放动画
+        windowElevation    = 16dp            -> 真实阴影（不是画上去的）
+        windowAnimationStyle = 弹窗淡入上浮   -> 打开时背景完全不收缩
+        windowBackground   = 圆角卡片底
+      这里把 windowBackground 换成透明，圆角卡片由我们自己的 View 画，尺寸也自己控制。
+      注意：不要改回 windowIsTranslucent + 全屏，那样会重新触发启动缩放，并且高版本系统
+      上还有启动页遮挡的问题。
+    -->
+    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.Light.Dialog">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFrame">@null</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:backgroundDimAmount">0.0</item>
+        <item name="android:windowCloseOnTouchOutside">false</item>
+        <item name="android:windowAnimationStyle">@style/CardWindowAnimation</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:windowSoftInputMode">adjustResize</item>
+        <item name="android:windowMinWidthMajor">100%</item>
+        <item name="android:windowMinWidthMinor">100%</item>
+        <item name="android:textColorHighlight">#334759B8</item>
+    </style>
+
+    <!-- 只淡入 + 轻微上浮，没有任何 scale，保证桌面背景不“收缩” -->
+    <style name="CardWindowAnimation" parent="@android:style/Animation.Dialog">
+        <item name="android:windowEnterAnimation">@anim/card_in</item>
+        <item name="android:windowExitAnimation">@anim/card_out</item>
+    </style>
+
+    <style name="CardTitle">
+        <item name="android:textSize">12.5sp</item>
+        <item name="android:textColor">@color/muted</item>
+        <item name="android:letterSpacing">0.04</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <style name="CardIndex">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/faint</item>
+        <item name="android:letterSpacing">0.18</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <style name="CardBody">
+        <item name="android:textSize">17sp</item>
+        <item name="android:textColor">@color/ink</item>
+        <item name="android:lineSpacingMultiplier">1.42</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:textIsSelectable">false</item>
+    </style>
+
+    <style name="CardFoot">
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">@color/hint</item>
+        <item name="android:letterSpacing">0.03</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <!-- 故障兜底页：不透明，保证任何情况下都能看到内容 -->
+    <style name="ErrorTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FFFFFFFF</item>
+        <item name="android:colorBackground">#FFFFFFFF</item>
+        <item name="android:statusBarColor">#FFFFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+</resources>

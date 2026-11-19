@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">随记</string>
+    <string name="hint">写点什么…</string>
+    <string name="done">完成</string>
+    <string name="clear">清除</string>
+    <string name="drawer">全部记录</string>
+    <string name="drawer_title">全部随记</string>
+    <string name="close">返回</string>
+    <string name="empty_card">空白卡片</string>
+    <string name="new_card">＋ 新建一张</string>
+    <string name="tip">左右滑动切换 · 点按卡片编辑</string>
+    <string name="cleared">已清除</string>
+    <string name="save_failed">保存失败</string>
+</resources>

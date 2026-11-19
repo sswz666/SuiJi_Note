@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 清除按钮：小垃圾桶（清空本卡片），避免被误认成「关闭卡片」的 × -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#A8AAB5"
+        android:pathData="M9,3h6v1.5h5.5V6H3.5V4.5H9V3z" />
+    <path
+        android:fillColor="#A8AAB5"
+        android:pathData="M5.5,7.5h13l-0.7,12.2c-0.06,1.02-0.9,1.8-1.93,1.8H8.13c-1.03,0-1.87-0.78-1.93-1.8L5.5,7.5z
+            M9.6,9.5v9.8h1.3V9.5H9.6z M13.1,9.5v9.8h1.3V9.5H13.1z" />
+</vector>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 底部抽屉按钮：三横线列表图标 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="20dp"
+    android:height="20dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#3C4049"
+        android:pathData="M3.5,5.5h17v2.2h-17z M3.5,10.9h17v2.2h-17z M3.5,16.3h17v2.2h-17z" />
+</vector>

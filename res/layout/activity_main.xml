@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/transparent"
+    android:clipChildren="false"
+    android:clipToPadding="false">
+
+    <!-- 卡片本体：位置/高度由代码按「下半屏 / 上半屏」两态插值控制 -->
+    <com.suiji.note.NoteCardView
+        android:id="@+id/card"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_gravity="top" />
+
+    <!-- 抽屉入口：小胶囊里的列表图标 -->
+    <ImageView
+        android:id="@+id/pill"
+        android:layout_width="46dp"
+        android:layout_height="38dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:background="@drawable/bg_pill"
+        android:elevation="8dp"
+        android:scaleType="center"
+        android:contentDescription="全部记录"
+        android:src="@drawable/ic_drawer" />
+
+    <!-- 抽屉面板 -->
+    <LinearLayout
+        android:id="@+id/panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="@drawable/bg_sheet"
+        android:elevation="50dp"
+        android:orientation="vertical"
+        android:visibility="invisible">
+
+        <View
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_handle" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingLeft="24dp"
+            android:paddingRight="18dp"
+            android:paddingTop="16dp"
+            android:paddingBottom="10dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="全部记录"
+                android:textColor="@color/ink"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/panel_count"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginLeft="10dp"
+                android:textColor="@color/faint"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/panel_add"
+                android:layout_width="wrap_content"
+                android:layout_height="30dp"
+                android:gravity="center"
+                android:paddingLeft="14dp"
+                android:paddingRight="14dp"
+                android:text="＋ 新建"
+                android:textColor="@color/ink2"
+                android:textSize="13sp"
+                android:background="@drawable/bg_pill"
+                android:layout_marginRight="8dp" />
+
+            <TextView
+                android:id="@+id/panel_close"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:gravity="center"
+                android:text="✕"
+                android:textColor="@color/faint"
+                android:textSize="14sp"
+                android:background="?android:attr/selectableItemBackgroundBorderless" />
+        </LinearLayout>
+
+        <ScrollView
+            android:id="@+id/panel_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:overScrollMode="never">
+
+            <LinearLayout
+                android:id="@+id/panel_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingLeft="18dp"
+                android:paddingRight="18dp"
+                android:paddingBottom="18dp" />
+        </ScrollView>
+    </LinearLayout>
+
+    <!-- 抽屉遮罩：elevation 要盖过卡片(14dp)/胶囊(8dp)，否则点卡片时触摸被
+         卡片截走，遮罩收不到点击；但必须低于面板(50dp) -->
+    <View
+        android:id="@+id/scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:elevation="40dp"
+        android:background="#3D0B0C12"
+        android:visibility="gone" />
+</FrameLayout>

@@ -1,0 +1,18 @@
+# 构建产物
+build/
+*.apk
+*.aab
+
+# 签名密钥（请勿提交）
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.gradle/
+local.properties
+
+# 系统
+.DS_Store
+Thumbs.db

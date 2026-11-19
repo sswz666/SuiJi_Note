@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 参考界面配色：低饱和靛蓝 + 米白卡片 -->
+    <color name="card">#FDFCFF</color>
+    <color name="card_tile">#F5F5FA</color>
+    <color name="accent">#4759B8</color>
+    <color name="accent_soft">#6672B3</color>
+    <color name="ink">#1B1B1F</color>
+    <color name="ink2">#3C4049</color>
+    <color name="muted">#6E7079</color>
+    <color name="faint">#A8AAB5</color>
+    <color name="hint">#B9BBC4</color>
+    <color name="hair">#EFF0F5</color>
+    <color name="scrim">#59000000</color>
+</resources>
