@@ -44,7 +44,7 @@
             android:scrollbars="none"
             android:overScrollMode="never">
 
-            <TextView
+            <com.suiji.note.BodyTextView
                 android:id="@+id/view"
                 style="@style/CardBody"
                 android:layout_width="match_parent"

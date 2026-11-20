@@ -15,6 +15,7 @@ import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -55,15 +56,25 @@ public class NoteCardView extends LinearLayout {
             "(?:https?://|www\\.)[\\w\\-._~:/?#\\[\\]@!$&'()*+,;=%]+",
             Pattern.CASE_INSENSITIVE);
 
+    // 一次手势只允许一个方向：横向翻页，或者纵向滚正文。
+    // 两者同时生效时，卡片一边横移、正文一边上下滚，看着就是卡片「抽一下」。
+    private static final int AXIS_NONE = 0;
+    private static final int AXIS_H = 1;
+    private static final int AXIS_V = 2;
+    private int axis = AXIS_NONE;
+    private float axisDownX, axisDownY;
+    private int axisSlop;
+
     private TextView label;
     private TextView indexView;
-    private TextView view;
+    private BodyTextView view;
     private TextView hintView;
     private View clearView;
     private EditText edit;
     private ScrollView scroll;
     private android.view.ViewGroup body;
     private android.view.ViewGroup.LayoutParams editLp;
+    private int boundIdx = -1;   // 当前正文绑定的是第几张卡
 
     private Listener listener;
     private TouchObserver touchObserver;
@@ -106,13 +117,14 @@ public class NoteCardView extends LinearLayout {
         if (label != null) return;
         label = (TextView) findViewById(R.id.label);
         indexView = (TextView) findViewById(R.id.index);
-        view = (TextView) findViewById(R.id.view);
+        view = (BodyTextView) findViewById(R.id.view);
         hintView = (TextView) findViewById(R.id.hint);
         clearView = (View) findViewById(R.id.clear);
         edit = (EditText) findViewById(R.id.edit);
         scroll = (ScrollView) findViewById(R.id.scroll);
         body = (android.view.ViewGroup) edit.getParent();
         editLp = edit.getLayoutParams();
+        axisSlop = Math.max(1, ViewConfiguration.get(getContext()).getScaledTouchSlop());
 
         clearView.setOnClickListener(new OnClickListener() {
             @Override
@@ -161,19 +173,129 @@ public class NoteCardView extends LinearLayout {
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
-        if (touchObserver != null) {
-            try {
-                touchObserver.onCardTouch(event);
-            } catch (Throwable t) {
-                // 不再静默吞掉：手势逻辑出错必须留痕，否则界面会"没反应"却查不出原因
-                android.util.Log.e("Suiji", "touch handler failed", t);
-            }
+        int action = event.getActionMasked();
+        // UP / CANCEL 必须在子 View 处理完之后再通知：
+        // 可选中 TextView 会在抬手时把焦点抢过去，若我们先 enterEdit，
+        // EditText 会立刻失焦并触发「编辑结束」，表现为点了没反应。
+        boolean after = action == MotionEvent.ACTION_UP
+                || action == MotionEvent.ACTION_CANCEL;
+
+        // 方向必须先定，观察者（主界面）拿到的判定才不会和子 View 打架
+        if (action == MotionEvent.ACTION_DOWN) {
+            axisDownX = event.getRawX();
+            axisDownY = event.getRawY();
+            axis = AXIS_NONE;
+        } else if (action == MotionEvent.ACTION_MOVE) {
+            updateAxis(event);
         }
-        return super.dispatchTouchEvent(event);
+
+        if (touchObserver != null && !after) {
+            notifyTouch(event);
+        }
+
+        boolean handled;
+        if (axis == AXIS_H && !isEditing()) {
+            // 已经判定为横向翻页：事件到此为止，不再往下发给 ScrollView。
+            // 否则用户在横滑时手指轻微上下偏一点，正文就会跟着滚，
+            // 卡片一边位移一边滚字，看起来就是莫名其妙地抽一下。
+            handled = true;
+        } else {
+            handled = super.dispatchTouchEvent(event);
+        }
+
+        if (touchObserver != null && after) {
+            notifyTouch(event);
+        }
+        if (after) axis = AXIS_NONE;
+        return handled;
+    }
+
+    /**
+     * 定方向：超过一个 touchSlop 时，看横向位移是不是明显占优。
+     * 斜着起步一律算纵向（滚正文），宁可少翻一页，也不要横竖一起动。
+     */
+    private void updateAxis(MotionEvent event) {
+        if (axis != AXIS_NONE) return;
+        // 编辑态交给输入框；正在拖选字手柄时交给系统，这两种都不能被抢
+        if (isEditing() || isTextSelecting()) {
+            axis = AXIS_V;
+            return;
+        }
+        float dx = Math.abs(event.getRawX() - axisDownX);
+        float dy = Math.abs(event.getRawY() - axisDownY);
+        if (dx < axisSlop && dy < axisSlop) return;
+        if (dx > dy * 1.3f) {
+            axis = AXIS_H;
+            cancelChildGesture(event);
+        } else {
+            axis = AXIS_V;
+        }
+    }
+
+    /** 给子 View 补一个 CANCEL，让 ScrollView 立刻停手（否则它会保持按下/惯性状态）。 */
+    private void cancelChildGesture(MotionEvent event) {
+        try {
+            MotionEvent cancel = MotionEvent.obtain(event);
+            cancel.setAction(MotionEvent.ACTION_CANCEL);
+            super.dispatchTouchEvent(cancel);
+            cancel.recycle();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 本次手势是否已锁定为横向翻页。 */
+    public boolean isHorizontalGesture() {
+        return axis == AXIS_H;
+    }
+
+    /** 本次手势是否已锁定为纵向滚动正文。 */
+    public boolean isVerticalGesture() {
+        return axis == AXIS_V;
+    }
+
+    private void notifyTouch(MotionEvent event) {
+        try {
+            touchObserver.onCardTouch(event);
+        } catch (Throwable t) {
+            // 不再静默吞掉：手势逻辑出错必须留痕，否则界面会"没反应"却查不出原因
+            android.util.Log.e("Suiji", "touch handler failed", t);
+        }
     }
 
     public boolean isEditing() {
         return edit != null && edit.getVisibility() == VISIBLE;
+    }
+
+    /** 正文是否真的选中了一段文字（折叠光标不算）。 */
+    public boolean isTextSelecting() {
+        try {
+            return view != null && view.hasRangeSelection();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * 这一下点击是不是用来「取消选区」的。
+     * 是则清掉选区并返回 true，主界面不该把这下当成「点卡片进编辑」。
+     */
+    public boolean consumeSelectionTap() {
+        if (!isTextSelecting()) return false;
+        clearBodySelection();
+        return true;
+    }
+
+    /** 清掉正文选区（供主界面在新手势开始时调用）。 */
+    public void clearSelection() {
+        clearBodySelection();
+    }
+
+    /** 清掉正文选区：进入编辑前调用，避免退出编辑后还残留高亮。 */
+    private void clearBodySelection() {
+        try {
+            if (view != null) view.clearSelectionQuietly();
+        } catch (Throwable ignored) {
+        }
     }
 
     public EditText editText() {
@@ -183,21 +305,53 @@ public class NoteCardView extends LinearLayout {
     /** 浏览态渲染。 */
     public void bind(String text, String labelText, int idx) {
         init();      // 兜底：任何创建路径都保证控件已绑定
+        // 换到另一张卡片时先把正文滚回顶部：ScrollView 会保留上一张的滚动位置，
+        // 新内容先按旧位置布局再被夹回边界，看起来就是文字上下抽动一下。
+        if (idx != boundIdx) {
+            boundIdx = idx;
+            resetBodyScroll();
+        }
         label.setText(labelText);
         indexView.setText(String.valueOf(idx));
 
-        if (TextUtils.isEmpty(text) || text.trim().length() == 0) {
+        boolean blank = TextUtils.isEmpty(text) || text.trim().length() == 0;
+        if (blank) {
+            // 占位提示必须走 hint：用 setText 写进去就成了真实文本，
+            // 会被长按选中、复制，还会被当成「有内容」
+            view.setSelectable(false);
             view.setTextColor(hint);
-            view.setText("记下此刻…");
+            view.setHintTextColor(hint);
+            view.setHint("记下此刻…");
+            view.setText("");
             hintView.setText("");
         } else {
+            view.setHint(null);
             view.setTextColor(ink);
             view.setText(linkify(text));
+            view.setSelectable(true);     // 有正文才允许长按选中
             hintView.setText(count(text) + " 字");
         }
     }
 
+    /** 正文滚回顶部（布局前后各做一次，防止测量完成后又被旧位置带偏）。 */
+    private void resetBodyScroll() {
+        try {
+            scroll.scrollTo(0, 0);
+            scroll.post(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        scroll.scrollTo(0, 0);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            });
+        } catch (Throwable ignored) {
+        }
+    }
+
     public void beginEdit(String text) {
+        clearBodySelection();
         if (edit.getParent() == null) body.addView(edit, editLp);
         edit.setText(text);
         if (!TextUtils.isEmpty(text)) edit.setSelection(text.length());
@@ -221,6 +375,9 @@ public class NoteCardView extends LinearLayout {
             body.removeView(edit);
         }
         scroll.setVisibility(VISIBLE);
+        // 焦点留在可选中正文上会触发 Android 8+ 的默认焦点高亮，整块正文变灰
+        view.clearFocus();
+        scroll.clearFocus();
         hintView.setTextColor(hint);
         body.invalidate();
         invalidate();
@@ -232,31 +389,68 @@ public class NoteCardView extends LinearLayout {
         hintView.setText(t.trim().isEmpty() ? "" : count(t) + " 字");
     }
 
-    /** 是否点上了正文里的网址；是则直接打开并返回 true。 */
+    /**
+     * 是否点上了正文里的网址；是则弹窗询问并返回 true。
+     *
+     * 只靠 getOffsetForHorizontal 会把范围放得很大：
+     * - 点在正文下方的空白处，getLineForVertical 仍会返回最后一行；
+     * - 点在某行文字右侧的空白处，光标会吸附到行末，而 off == 链接末尾时
+     *   getSpans(off, off) 依然能命中该链接。
+     * 所以这里补三道判定：竖向在行内、横向在行内、且落在链接字符的横向范围内。
+     */
     public boolean handleLinkTap(float screenX, float screenY) {
         if (isEditing()) return false;          // 编辑态不拦点击，交给输入框
-        if (view.getLayout() == null) return false;
+        Layout l = view.getLayout();
+        if (l == null || l.getLineCount() <= 0) return false;
+
         int[] loc = new int[2];
         view.getLocationOnScreen(loc);
         float x = screenX - loc[0] - view.getTotalPaddingLeft();
         float y = screenY - loc[1] - view.getTotalPaddingTop();
         if (x < 0 || y < 0) return false;
 
-        Layout l = view.getLayout();
         int line = l.getLineForVertical((int) y);
         if (line < 0 || line >= l.getLineCount()) return false;
+
+        float tol = Ui.dp(getContext(), 6);
+        // 1) 竖向必须真的落在这一行的高度内，正文下方的大片空白不算
+        if (y < l.getLineTop(line) - tol || y > l.getLineBottom(line) + tol) return false;
+        // 2) 横向必须落在这一行文字的宽度内，行尾右侧的空白不算
+        float lineLo = Math.min(l.getLineLeft(line), l.getLineRight(line));
+        float lineHi = Math.max(l.getLineLeft(line), l.getLineRight(line));
+        if (x < lineLo - tol || x > lineHi + tol) return false;
+
         int off = l.getOffsetForHorizontal(line, x);
         CharSequence cs = view.getText();
         if (!(cs instanceof Spanned)) return false;
         Spanned sp = (Spanned) cs;
         ClickableSpan[] spans = sp.getSpans(off, off, ClickableSpan.class);
-        if (spans.length == 0) return false;
-        if (spans[0] instanceof LinkSpan && listener != null) {
-            listener.onLinkTap(this, ((LinkSpan) spans[0]).url);
-        } else {
-            spans[0].onClick(view);
+        for (ClickableSpan span : spans) {
+            int s = sp.getSpanStart(span);
+            int e = sp.getSpanEnd(span);
+            if (off < s || off > e) continue;
+            // 3) 光标吸附到链接末尾时，用字符的横向范围再确认一次。
+            //    链接跨行时只取「落在当前行」的那一段，避免用到另一行的坐标。
+            int ls = l.getLineStart(line);
+            int le = l.getLineEnd(line);
+            int vs = Math.max(s, ls);
+            int ve = Math.min(e, le);
+            float x1 = l.getPrimaryHorizontal(vs);
+            float x2 = l.getPrimaryHorizontal(ve);
+            x1 = Math.max(x1, lineLo);
+            x2 = Math.min(x2, lineHi);
+            float lo = Math.min(x1, x2);
+            float hi = Math.max(x1, x2);
+            if (x < lo - tol || x > hi + tol) continue;
+
+            if (span instanceof LinkSpan && listener != null) {
+                listener.onLinkTap(this, ((LinkSpan) span).url);
+            } else {
+                span.onClick(view);
+            }
+            return true;
         }
-        return true;
+        return false;
     }
 
     public boolean isClearHit(float screenX, float screenY) {

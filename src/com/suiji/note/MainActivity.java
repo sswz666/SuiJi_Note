@@ -72,6 +72,14 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
     private long downT;
     private float vx;
     private boolean swiping;
+    /** 本次按下已经达到长按阈值：抬手时不再当成「点卡片进编辑」。 */
+    private boolean longPressFired;
+    private final Runnable longPressMark = new Runnable() {
+        @Override
+        public void run() {
+            longPressFired = true;
+        }
+    };
     private int touchSlop;
 
     private float outX, outY;
@@ -388,9 +396,10 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
         }
     }
 
-    /** 失去焦点 / 收起：保存，空白卡片自动删除。 */
+    /** 失去焦点 / 收起：保存并落回静息态（空白卡保留，不删除）。 */
     private void endEdit() {
         if (!editing) return;
+        card.removeCallbacks(endOnImeHidden);
         String txt = card.editText().getText().toString();
         NoteStore.Note n = store.current();
         n.text = txt;
@@ -607,7 +616,7 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
                             // 键盘被收回（按返回键等）：等同于失去焦点，收卡保存
                             imeShown = false;
                             card.removeCallbacks(endOnImeHidden);
-                            card.postDelayed(endOnImeHidden, 700);
+                            card.postDelayed(endOnImeHidden, 150);
                         }
                     }
                 }
@@ -635,7 +644,7 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
                 } else if (imeShown && System.currentTimeMillis() - editStartedAt > 350) {
                     imeShown = false;
                     card.removeCallbacks(endOnImeHidden);
-                    card.postDelayed(endOnImeHidden, 700);
+                    card.postDelayed(endOnImeHidden, 150);
                 }
             }
         });
@@ -671,6 +680,9 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
                     downT = 0;
                     return;
                 }
+                // 新手势先清掉上一次留下的文字选区：
+                // 否则 MOVE 会一直命中「正在选字」分支，卡片从此滑不动
+                card.clearSelection();
                 downX = e.getRawX();
                 downY = e.getRawY();
                 lastX = downX;
@@ -678,12 +690,22 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
                 downT = System.currentTimeMillis();
                 vx = 0f;
                 swiping = false;
+                longPressFired = false;
+                card.removeCallbacks(longPressMark);
+                card.postDelayed(longPressMark, 420);   // 超过 420ms 视为长按（选字）
                 destroyPeer();                      // 清掉上一次翻页可能残留的替身
                 card.animate().cancel();
+                // 上一次翻页动画被这一下按下打断时，卡片可能停在半路。
+                // 不归位的话，后面的位移是相对这个歪掉的位置算的，看起来就是"抖一下"。
+                card.setTranslationX(0f);
+                card.setAlpha(1f);
                 return;
 
             case MotionEvent.ACTION_MOVE:
                 if (editing || downT == 0) return;
+                if (card.isTextSelecting()) {       // 真正选中了文字：不翻页、不拖卡片
+                    return;
+                }
                 float mx = e.getRawX();
                 float dx = mx - downX;
                 float dy = e.getRawY() - downY;
@@ -691,30 +713,35 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
                 vx = (mx - lastX) / dt;
                 lastX = mx;
                 lastMoveT = e.getEventTime();
+                if (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop) {
+                    card.removeCallbacks(longPressMark);
+                }
 
-                if (!swiping && Math.abs(dx) > touchSlop
-                        && Math.abs(dx) > Math.abs(dy) * 1.3f) {
+                // 方向锁：一次手势只做一件事。
+                // 已经锁定为纵向（用户想看正文的上下部分）就不再翻页，
+                // 否则卡片会带着横向位移跟手滑，正文又同时在滚，看着像卡片抽了一下。
+                if (card.isVerticalGesture()) return;
+                if (!swiping && card.isHorizontalGesture()) {
                     swiping = true;
                 }
-                if (swiping) {
-                    int want = dx > 0 ? -1 : 1;     // 右拖看上一张，左拖看下一张
-                    if (pagerDir != 0 && want != pagerDir && Math.abs(dx) > touchSlop) {
-                        destroyPeer();              // 拖动中途反向：换目标卡
-                    }
-                    if (pagerDir == 0) startPager(want);
-                    float f = pagerDir != 0 ? 1f : 0.3f;   // 没有相邻卡时边界阻尼
-                    card.setTranslationX(dx * f);
-                    if (peer != null) {
-                        peer.setTranslationX(dx * f + pagerDir * pageOff());
-                    }
+                if (!swiping) return;
+                int want = dx > 0 ? -1 : 1;     // 右拖看上一张，左拖看下一张
+                if (pagerDir != 0 && want != pagerDir && Math.abs(dx) > touchSlop) {
+                    destroyPeer();              // 拖动中途反向：换目标卡
+                }
+                if (pagerDir == 0) startPager(want);
+                float f = pagerDir != 0 ? 1f : 0.3f;   // 没有相邻卡时边界阻尼
+                card.setTranslationX(dx * f);
+                if (peer != null) {
+                    peer.setTranslationX(dx * f + pagerDir * pageOff());
                 }
                 return;
 
             case MotionEvent.ACTION_UP:
+                card.removeCallbacks(longPressMark);
                 if (editing || downT == 0) return;
                 float ddx = e.getRawX() - downX;
                 float ddy = e.getRawY() - downY;
-                long held = System.currentTimeMillis() - downT;
                 downT = 0;
 
                 if (swiping) {
@@ -727,13 +754,16 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
                     } else {
                         bounceBack();               // 边界：没有相邻卡可滑
                     }
-                } else if (Math.abs(ddx) < touchSlop && Math.abs(ddy) < touchSlop
-                        && held < 600) {
+                } else if (!longPressFired
+                        && Math.abs(ddx) < touchSlop && Math.abs(ddy) < touchSlop) {
+                    // 短按一律进编辑：不再因为「存在选区」而吞掉这次点击。
+                    // 长按（>=420ms）已由 longPressFired 标记，交给系统做选字。
                     handleTap(e.getRawX(), e.getRawY());
                 }
                 return;
 
             case MotionEvent.ACTION_CANCEL:
+                card.removeCallbacks(longPressMark);
                 downT = 0;
                 if (peer != null) {
                     settle(pagerDir, false);
@@ -1068,6 +1098,10 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
         }
         if (editing) {
             endEdit();
+            return;
+        }
+        if (card.isTextSelecting()) {   // 正在选字：这一下只取消选区，不退出应用
+            card.clearSelection();
             return;
         }
         super.onBackPressed();

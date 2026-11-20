@@ -54,6 +54,7 @@
         <item name="android:textColor">@color/ink</item>
         <item name="android:lineSpacingMultiplier">1.42</item>
         <item name="android:includeFontPadding">false</item>
+        <!-- 默认不允许选中：空白卡没有可复制内容，由代码在有正文时开启 -->
         <item name="android:textIsSelectable">false</item>
     </style>
 
