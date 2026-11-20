@@ -12,4 +12,5 @@
     <string name="tip">左右滑动切换 · 点按卡片编辑</string>
     <string name="cleared">已清除</string>
     <string name="save_failed">保存失败</string>
+    <string name="tile_label">随记</string>
 </resources>
