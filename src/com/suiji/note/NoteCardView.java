@@ -435,8 +435,13 @@ public class NoteCardView extends LinearLayout {
             int le = l.getLineEnd(line);
             int vs = Math.max(s, ls);
             int ve = Math.min(e, le);
+            if (vs >= ve) continue;         // 这一行没有链接的字符，换下一个 span
             float x1 = l.getPrimaryHorizontal(vs);
-            float x2 = l.getPrimaryHorizontal(ve);
+            // 关键：链接跨行时 ve 正好是本行末尾，而 getPrimaryHorizontal(ve)
+            // 拿到的是「下一行行首」的坐标（≈0）。直接拿它当右边界，
+            // 区间会变成 [0, 链接起点]，于是第一行的链接怎么点都不中，
+            // 只有第二行能用。这里对「落到行末」的情况改用本行文字右边界。
+            float x2 = ve >= le ? l.getLineRight(line) : l.getPrimaryHorizontal(ve);
             x1 = Math.max(x1, lineLo);
             x2 = Math.min(x2, lineHi);
             float lo = Math.min(x1, x2);

@@ -18,7 +18,7 @@ $BT/aapt2 link -o "$OUT/base.apk" -I "$JAR" \
     --manifest AndroidManifest.xml \
     --java "$OUT/gen" \
     --min-sdk-version 26 --target-sdk-version 34 \
-    --version-code 22 --version-name 3.6 \
+    --version-code 23 --version-name 3.7 \
     --auto-add-overlay \
     "$OUT/res/resources.zip"
 
