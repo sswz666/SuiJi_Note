@@ -22,6 +22,8 @@
 - **网址识别**：正文里的链接自动标蓝下划线，点击弹窗选择复制、打开或取消
 - **单轴手势锁**：一次手势只做一件事——横滑只翻页，竖滑只滚正文，不会两件事同时发生
 - **控制中心入口**：快捷设置磁贴，下拉面板点一下就能叫出卡片
+- **双指缩放字号**：浏览态捏合 12–30sp，0.5sp 一档，松手即存，新建卡片沿用
+- **支持横屏**：跟随系统旋转、不重建 Activity，正在打的字不丢；横屏自动限宽居中
 - **不进多任务列表**：`excludeFromRecents`，卡片内容不会残留在最近任务预览里
 - **零第三方运行时依赖**：原生 Java + Android View，无 Kotlin、无 AndroidX、无 Gradle
 
@@ -39,6 +41,7 @@
 | 点底部三横线 | 打开全部记录抽屉 |
 | 抽屉内长按条目 | 确认后删除该条记录 |
 | 抽屉内「＋ 新建」 | 追加空白卡片并跳转 |
+| 双指捏合正文 | 调整字号 12–30sp（仅浏览态，编辑态交给输入框选字） |
 
 ## 下载安装
 
@@ -90,7 +93,7 @@ res/
 
 ## 实现要点
 
-**真正透明的窗口**：`Theme.Translucent.NoTitleBar` + 背景透明 + 清掉 `FLAG_DIM_BEHIND`；`setDecorFitsSystemWindows(false)` 后自接管 insets；Android 12+ 用透明的 SplashScreen 主题避免启动闪屏。Dialog 主题会把窗口重置成 `wrap_content`，所以窗口尺寸必须在 `setContentView()` 之后设置。
+**真正透明的窗口**：`Theme.DeviceDefault.Light.Dialog`（`windowIsFloating=true`，浮动窗口不会走全屏 Activity 的启动缩放）+ 窗口背景透明 + 清掉 `FLAG_DIM_BEHIND`；`setDecorFitsSystemWindows(false)` 后自接管 insets；Android 12+ 用透明的 SplashScreen 主题避免启动闪屏。Dialog 主题会把窗口重置成 `wrap_content`，所以窗口尺寸必须在 `setContentView()` 之后设置。
 
 **触摸与手势**：卡片内部的 `ScrollView`、`TextView`（带 `LinkMovementMethod`）会吃掉点击事件。解决办法是在卡片层 `dispatchTouchEvent()` 里做一次「旁路观察」，把原始事件交给 Activity 统一判定，正文层不再拦截。
 
@@ -100,6 +103,10 @@ res/
 
 ## 更新记录
 
+- **3.13** 去掉冷启动的窗口缩放：返回键改走应用自己的 `finish()`（系统 back 会连 task 一起移除，下次必是冷启动）；主题里 activity / task / wallpaper 转场全部置 `@null`；窗口以 `alpha=0` 出现后自己淡入
+- **3.12** 回退 3.11「收起到后台」的退出改动——那会让每次打开都变成 task-to-front，反而处处有转场
+- **3.10** 横屏更满：胶囊贴底、卡片高度占比 70%、限宽 640dp、顶部呼吸位收紧
+- **3.9** 双指缩放字号 12–30sp；支持横屏（`configChanges` 不重建，横屏编辑收起页眉页脚给正文让位）
 - **3.8** 控制中心入口：快捷设置磁贴，下拉面板一键叫出卡片；锁屏先解锁再打开
 - **3.7** 跨行链接第一行点不中：行末坐标会取到下一行行首，右边界改用本行文字右边缘
 - **3.6** 单轴手势锁：横滑只翻页、竖滑只滚正文；翻页动画被打断时卡片自动归位

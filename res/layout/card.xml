@@ -3,6 +3,7 @@
 
     <!-- 顶部：左侧时间/标题，右侧编号 -->
     <LinearLayout
+        android:id="@+id/header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
@@ -74,6 +75,7 @@
 
     <!-- 底部：左侧提示，右侧清除 -->
     <LinearLayout
+        android:id="@+id/foot"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"

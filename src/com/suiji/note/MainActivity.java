@@ -32,7 +32,11 @@ import android.widget.TextView;
  */
 public class MainActivity extends Activity implements NoteCardView.Listener {
 
-    private static final float IDLE_RATIO = 0.44f;   // 静息卡片高度占比
+    private static final float IDLE_RATIO = 0.44f;        // 静息卡片高度占比（竖屏）
+    private static final float IDLE_RATIO_LAND = 0.70f;   // 横屏纵向空间紧，卡片占满大半屏
+
+    private static final String PREF = "suiji_prefs";
+    private static final String KEY_SP = "body_sp";
 
     private FrameLayout root;
     private NoteCardView card;
@@ -58,6 +62,7 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
     private int insetTop, insetBottom;
     private int imeHeight;       // 键盘高度（API30+ 由 insets 给出）
     private long editStartedAt;
+    private float bodySp = 17f;  // 用户设定/捏合出来的正文字号
 
     /** 键盘收回后延迟收卡：避免键盘弹出/收回过程中的抖动误判。 */
     private final Runnable endOnImeHidden = new Runnable() {
@@ -92,12 +97,15 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        noTransition(true);   // 冷启动不播系统「图标展开」缩放，窗口直接出现
         try {
             store = new NoteStore(this);
             setupWindow();
             setContentView(R.layout.activity_main);
             applyWindowSize();
             bindViews();
+            bodySp = getSharedPreferences(PREF, MODE_PRIVATE).getFloat(KEY_SP, 17f);
+            card.setBodyTextSize(bodySp);
             computeMetrics();
             bindCurrent();
             setupTouch();
@@ -106,11 +114,44 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
                 public void run() {
                     layoutIdle();
                     styleSystemBars();
+                    // 稍等一下再淡入：给系统的启动转场留出时间走完，
+                    // 这段时间窗口是透明的，画面上只有桌面，看不到任何缩放。
+                    root.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            fadeInWindow();
+                        }
+                    }, 40);
                 }
             });
+            // 兜底：万一淡入没跑起来，一秒后强制显形
+            root.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    showWindowNow();
+                }
+            }, 1000);
         } catch (Throwable t) {
             SuijiApp.writeCrash(this, t);
+            showWindowNow();
             showFallback(t);
+        }
+    }
+
+    /**
+     * 关掉这个 Activity 的系统级进出转场（主题里也已经把 activity/task/wallpaper
+     * 转场置空，这里是按调用时机再兜一层）。窗口内容自己的 card_in / card_out
+     * 淡入淡出不受影响。
+     */
+    private void noTransition(boolean opening) {
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                overrideActivityTransition(
+                        opening ? OVERRIDE_TRANSITION_OPEN : OVERRIDE_TRANSITION_CLOSE, 0, 0);
+            } else {
+                overridePendingTransition(0, 0);
+            }
+        } catch (Throwable ignored) {
         }
     }
 
@@ -136,6 +177,53 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
             // 低版本：交给系统压缩窗口（adjustResize），用根布局高度当可用高度。
             // 不要加 STATE_ALWAYS_HIDDEN，否则点开卡片后键盘弹不出来。
             w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+
+        // 窗口先以全透明出现：冷启动时系统不管播什么转场（图标展开 / 窗口缩放 /
+        // 壁纸拉近），这期间画面上都看不见任何卡片，等转场走完再由我们自己淡入。
+        try {
+            WindowManager.LayoutParams lp = w.getAttributes();
+            lp.alpha = 0f;
+            w.setAttributes(lp);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 卡片淡入。窗口级 alpha（不是 View 的），系统的窗口转场也会乘这个值，
+     * 所以哪怕系统还在缩放窗口，看到的也只是透明。
+     */
+    private void fadeInWindow() {
+        final Window w = getWindow();
+        WindowManager.LayoutParams lp = w.getAttributes();
+        if (lp.alpha >= 1f) return;
+        android.animation.ValueAnimator a =
+                android.animation.ValueAnimator.ofFloat(lp.alpha, 1f);
+        a.setDuration(190);
+        a.setInterpolator(new DecelerateInterpolator(1.8f));
+        a.addUpdateListener(new android.animation.ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(android.animation.ValueAnimator anim) {
+                try {
+                    WindowManager.LayoutParams p = w.getAttributes();
+                    p.alpha = (Float) anim.getAnimatedValue();
+                    w.setAttributes(p);
+                } catch (Throwable ignored) {
+                }
+            }
+        });
+        a.start();
+    }
+
+    /** 兜底：任何情况下都不能让窗口停在透明状态。 */
+    private void showWindowNow() {
+        try {
+            WindowManager.LayoutParams p = getWindow().getAttributes();
+            if (p.alpha != 1f) {
+                p.alpha = 1f;
+                getWindow().setAttributes(p);
+            }
+        } catch (Throwable ignored) {
         }
     }
 
@@ -246,12 +334,64 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
 
     private void computeMetrics() {
         cardSide = Ui.dp(this, 16);
-        int pillBottom = insetBottom + Ui.dp(this, 84);
-        bottomReserve = pillBottom + Ui.dp(this, 38) + Ui.dp(this, 12);
+        // 竖屏下方要留出桌面图标的位置，胶囊抬高 84dp；横屏高度只有一半，
+        // 再照搬这套留白就是白白浪费三分之一屏，所以胶囊贴底、卡片紧跟着往下长。
+        boolean land = isLandscape();
+        int pillBottom = insetBottom + Ui.dp(this, land ? 16 : 84);
+        int pillGap = Ui.dp(this, land ? 10 : 12);
+        bottomReserve = pillBottom + Ui.dp(this, 38) + pillGap;
 
         FrameLayout.LayoutParams plp = (FrameLayout.LayoutParams) pill.getLayoutParams();
         plp.bottomMargin = pillBottom;
         pill.setLayoutParams(plp);
+
+        // 横屏 / 平板上抽屉不拉满整屏，居中限宽更像一张面板
+        if (panel != null) {
+            int w = root.getWidth();
+            if (w <= 0) w = getResources().getDisplayMetrics().widthPixels;
+            int pw = Math.min(w, Ui.dp(this, 560));
+            FrameLayout.LayoutParams panelLp = (FrameLayout.LayoutParams) panel.getLayoutParams();
+            if (panelLp.width != pw || panelLp.gravity != (Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL)) {
+                panelLp.width = pw;
+                panelLp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                panel.setLayoutParams(panelLp);
+            }
+        }
+    }
+
+    private boolean isLandscape() {
+        return getResources().getConfiguration().orientation
+                == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+    }
+
+    /** 静息态的几何：可用高度、卡片高度、卡片顶边。 */
+    private void computeIdleGeometry(int h) {
+        fullH = h;
+        boolean land = isLandscape();
+        // 横屏纵向空间本来就紧，顶部不必再留 40dp 的呼吸位
+        int minTop = Ui.dp(this, land ? 20 : 40);
+        // 横屏高度本就紧张：先保证卡片不压到底部胶囊，再谈高度占比。
+        // 不这么夹一下，idleTop 会被 minTop 顶下去，卡片底边直接盖住胶囊。
+        int room = h - bottomReserve - minTop;
+        int want = Math.round(h * (land ? IDLE_RATIO_LAND : IDLE_RATIO));
+        idleHeight = Math.max(Ui.dp(this, 120), Math.min(want, room));
+        idleTop = Math.max(minTop, h - bottomReserve - idleHeight);
+    }
+
+    /**
+     * 卡片横向摆放：竖屏几乎占满宽度；横屏把宽度收在 640dp 以内并居中，
+     * 否则一张卡会被拉成横贯整屏的长条，一行几十个字，很难读。
+     */
+    private void applyCardBox(FrameLayout.LayoutParams lp) {
+        int w = root.getWidth();
+        if (w <= 0) w = getResources().getDisplayMetrics().widthPixels;
+        // 横屏可以再宽一点：一行字数仍在舒适区间，卡片也不至于缩在屏中间
+        int maxW = Ui.dp(this, isLandscape() ? 640 : 560);
+        int cw = Math.max(1, Math.min(w - cardSide * 2, maxW));
+        lp.gravity = Gravity.TOP;
+        lp.width = cw;
+        lp.leftMargin = Math.max(0, (w - cw) / 2);
+        lp.rightMargin = 0;
     }
 
     private void applyInsets(int top, int bottom) {
@@ -273,14 +413,10 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
         if (editing) return;
         int h = availableH();
         if (h <= 0) return;
-        fullH = h;
-        idleHeight = Math.round(h * IDLE_RATIO);
-        idleTop = Math.max(Ui.dp(this, 40), h - bottomReserve - idleHeight);
+        computeIdleGeometry(h);
 
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) card.getLayoutParams();
-        lp.gravity = Gravity.TOP;
-        lp.leftMargin = cardSide;
-        lp.rightMargin = cardSide;
+        applyCardBox(lp);
         lp.topMargin = idleTop;
         lp.height = idleHeight;
         card.setLayoutParams(lp);
@@ -288,12 +424,47 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
         geo = 0f;
     }
 
+    /**
+     * 旋转 / 分屏尺寸变化后重新摆一遍（configChanges 自己处理，不重建 Activity，
+     * 所以正在输入的文字和键盘都不会丢）。
+     */
+    private void relayoutForConfig() {
+        if (card == null) return;
+        int h = availableH();
+        if (h <= 0) return;
+        computeIdleGeometry(h);
+
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) card.getLayoutParams();
+        applyCardBox(lp);
+        lp.topMargin = idleTop;
+        if (editing) {
+            card.setCompactEdit(isLandscape());
+            // 编辑态保持「顶到状态栏下、底边贴键盘」，宽度跟着新屏幕重算
+            int room = h - editTopPx() - Ui.dp(this, 20);
+            lp.height = Math.max(Ui.dp(this, 180), Math.min(lp.height, room));
+            card.setLayoutParams(lp);
+            card.setTranslationY(editTopPx() - idleTop);
+            geo = 1f;
+            clampHeight(h);
+        } else {
+            lp.height = idleHeight;
+            card.setLayoutParams(lp);
+            card.setTranslationY(0f);
+            geo = 0f;
+        }
+        computeMetrics();
+    }
+
     /** 编辑态高度：卡片顶到状态栏下方，底边贴着键盘上沿。 */
     private void clampHeight(int h) {
         if (idleHeight <= 0 || h <= 0) return;
         int top = editTopPx();
         int usable = h - imeHeight;                       // 键盘以上的可用高度
-        int maxH = Math.max(Ui.dp(this, 180), usable - top - Ui.dp(this, 40));
+        boolean land = isLandscape();
+        // 横屏时键盘占掉大半屏，不能再用竖屏那套下限，否则卡片会被顶到键盘底下
+        int minH = Ui.dp(this, land ? 110 : 180);
+        int gap = Ui.dp(this, land ? 10 : 40);
+        int maxH = Math.max(minH, usable - top - gap);
         int target;
         if (imeHeight > 0) {
             // 知道键盘高度：铺满键盘上方，像一张真正的书写纸
@@ -366,6 +537,7 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
         card.setTranslationX(0f);
         card.animate().cancel();
         card.setAlpha(1f);
+        card.setCompactEdit(isLandscape());     // 横屏键盘吃掉半屏，收起页眉页脚
         card.beginEdit(store.current().text);
         card.postDelayed(new Runnable() {
             @Override
@@ -409,6 +581,7 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
         editing = false;
         card.editText().clearFocus();
         card.endEdit();
+        card.setCompactEdit(false);
         bindCurrent();          // 浏览态重新渲染（网址下划线、时间、字数）
 
         // 先启动下落动画：此时 busy()=true，insets 变化不会触发 layoutIdle 把卡片瞬移，
@@ -461,9 +634,10 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
         try {
             int i = store.getIndex();
             peer = new NoteCardView(this);
+            peer.setBodyTextSize(bodySp);          // 相邻卡与当前卡字号一致
             FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
                     card.getWidth(), card.getHeight());
-            plp.leftMargin = cardSide;
+            plp.leftMargin = card.getLeft();       // 卡片可能居中（横屏），不能用固定边距
             plp.topMargin = card.getTop() + Math.round(card.getTranslationY());
             peer.setLayoutParams(plp);
             if (dir > 0 && i + 1 >= store.size()) {
@@ -580,6 +754,7 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
                         if (editing) {
                             endEdit();
                         } else {
+                            noTransition(false);   // 退出时也不播窗口缩回的转场
                             finish();
                         }
                         return true;
@@ -1090,6 +1265,53 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
         if (editing) endEdit();
     }
 
+    // ------------------------------------------------------------ 双指缩放
+
+    @Override
+    public void onPinchStart() {
+        // 第二根手指落下时，单指手势可能已经走了几步：把翻页、长按全部收掉
+        card.removeCallbacks(longPressMark);
+        downT = 0;
+        swiping = false;
+        card.clearSelection();
+        if (peer != null) {
+            settle(pagerDir, false);
+        } else if (Math.abs(card.getTranslationX()) > 1f) {
+            bounceBack();
+        }
+    }
+
+    @Override
+    public void onPinchEnd(float sp) {
+        bodySp = sp;
+        getSharedPreferences(PREF, MODE_PRIVATE).edit().putFloat(KEY_SP, sp).apply();
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        try {
+            if (drawerOpen) closeDrawer();
+            if (geoAnim != null) geoAnim.cancel();
+            // 旧方向下的键盘高度对新方向没有意义，先清掉，等 insets 重发
+            imeHeight = 0;
+            lastIme = -1;
+            if (editing) editStartedAt = System.currentTimeMillis();
+            applyWindowSize();
+            // 新尺寸要等这一帧布局完才生效，推到下一帧再摆
+            if (root != null) {
+                root.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        relayoutForConfig();
+                    }
+                });
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Suiji", "config change failed", t);
+        }
+    }
+
     @Override
     public void onBackPressed() {
         if (drawerOpen) {
@@ -1104,7 +1326,11 @@ public class MainActivity extends Activity implements NoteCardView.Listener {
             card.clearSelection();
             return;
         }
-        super.onBackPressed();
+        // 不用 super.onBackPressed()：那走的是系统 back 导航，会连带把 task 一起移除，
+        // 下次点图标就是全新 task，系统必播启动展开动画。这里用应用自己的 finish()，
+        // 与「点卡片外空白」完全同一条路径——那种退出方式本来就没有动画。
+        noTransition(false);
+        finish();
     }
 
     @Override

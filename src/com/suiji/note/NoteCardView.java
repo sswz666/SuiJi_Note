@@ -12,6 +12,7 @@ import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.text.style.ClickableSpan;
 import android.util.AttributeSet;
+import android.util.TypedValue;
 import android.view.MotionEvent;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -42,6 +43,12 @@ public class NoteCardView extends LinearLayout {
         void onLinkTap(NoteCardView card, String url);
 
         void onEditFocusLost(NoteCardView card);
+
+        /** 双指开始缩放字号：主界面要把可能已经起步的翻页/长按收掉 */
+        void onPinchStart();
+
+        /** 双指缩放结束，sp 为最终字号，主界面负责持久化 */
+        void onPinchEnd(float sp);
     }
 
     /**
@@ -65,6 +72,14 @@ public class NoteCardView extends LinearLayout {
     private float axisDownX, axisDownY;
     private int axisSlop;
 
+    // 双指捏合调字号
+    private static final float SP_MIN = 12f;
+    private static final float SP_MAX = 30f;
+    private float bodySp = 17f;
+    private boolean pinching;
+    private float pinchDist0;
+    private float pinchStartSp;
+
     private TextView label;
     private TextView indexView;
     private BodyTextView view;
@@ -73,6 +88,9 @@ public class NoteCardView extends LinearLayout {
     private EditText edit;
     private ScrollView scroll;
     private android.view.ViewGroup body;
+    private android.view.View header;
+    private android.view.View foot;
+    private LinearLayout.LayoutParams bodyLp;
     private android.view.ViewGroup.LayoutParams editLp;
     private int boundIdx = -1;   // 当前正文绑定的是第几张卡
 
@@ -123,8 +141,13 @@ public class NoteCardView extends LinearLayout {
         edit = (EditText) findViewById(R.id.edit);
         scroll = (ScrollView) findViewById(R.id.scroll);
         body = (android.view.ViewGroup) edit.getParent();
+        bodyLp = (LinearLayout.LayoutParams) body.getLayoutParams();
+        header = findViewById(R.id.header);
+        foot = findViewById(R.id.foot);
         editLp = edit.getLayoutParams();
         axisSlop = Math.max(1, ViewConfiguration.get(getContext()).getScaledTouchSlop());
+        // 默认字号以 XML 样式为准，之后由主界面用用户设置覆盖
+        bodySp = px2sp(view.getTextSize());
 
         clearView.setOnClickListener(new OnClickListener() {
             @Override
@@ -171,9 +194,57 @@ public class NoteCardView extends LinearLayout {
         touchObserver = o;
     }
 
+    /** 正文字号（sp）：浏览态与编辑框必须用同一个值，否则进出编辑会跳字号。 */
+    public void setBodyTextSize(float sp) {
+        bodySp = Math.max(SP_MIN, Math.min(SP_MAX, sp));
+        if (view != null) view.setTextSize(TypedValue.COMPLEX_UNIT_SP, bodySp);
+        if (edit != null) edit.setTextSize(TypedValue.COMPLEX_UNIT_SP, bodySp);
+    }
+
+    public float bodyTextSize() {
+        return bodySp;
+    }
+
+    /**
+     * 紧凑编辑：横屏时窗口本来就矮，键盘再占掉半屏，
+     * 页眉、页脚、外边距全是浪费——收起来只留正文，能多写三四行。
+     */
+    public void setCompactEdit(boolean compact) {
+        if (header != null) header.setVisibility(compact ? GONE : VISIBLE);
+        if (foot != null) foot.setVisibility(compact ? GONE : VISIBLE);
+        int p = Ui.dp(getContext(), compact ? 14 : 22);
+        setPadding(p, Ui.dp(getContext(), compact ? 12 : 20),
+                p, Ui.dp(getContext(), compact ? 10 : 15));
+        if (bodyLp != null) {
+            int top = Ui.dp(getContext(), compact ? 0 : 15);
+            if (bodyLp.topMargin != top) {
+                bodyLp.topMargin = top;
+                body.setLayoutParams(bodyLp);
+            }
+        }
+    }
+
+    private float px2sp(float px) {
+        float d = getResources().getDisplayMetrics().scaledDensity;
+        return d > 0 ? px / d : px;
+    }
+
     @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
         int action = event.getActionMasked();
+
+        // 第二根手指落下 = 双指捏合调字号。整段手势由卡片接管：
+        // 既不翻页也不滚正文，否则捏合时卡片会跟着横向跑、文字同时上下滚。
+        if (!pinching && action == MotionEvent.ACTION_POINTER_DOWN
+                && event.getPointerCount() >= 2
+                && !isEditing() && !isTextSelecting()) {
+            startPinch(event);
+        }
+        if (pinching) {
+            handlePinch(event);
+            return true;
+        }
+
         // UP / CANCEL 必须在子 View 处理完之后再通知：
         // 可选中 TextView 会在抬手时把焦点抢过去，若我们先 enterEdit，
         // EditText 会立刻失焦并触发「编辑结束」，表现为点了没反应。
@@ -241,6 +312,54 @@ public class NoteCardView extends LinearLayout {
             cancel.recycle();
         } catch (Throwable ignored) {
         }
+    }
+
+    // ------------------------------------------------------------- 双指缩放
+
+    private void startPinch(MotionEvent event) {
+        pinching = true;
+        axis = AXIS_V;                  // 这一整段手势都不再参与翻页判定
+        pinchDist0 = span(event);
+        pinchStartSp = bodySp;
+        cancelChildGesture(event);      // 正文立刻停止滚动
+        try {
+            if (listener != null) listener.onPinchStart();
+        } catch (Throwable t) {
+            android.util.Log.e("Suiji", "pinch start failed", t);
+        }
+    }
+
+    private void handlePinch(MotionEvent event) {
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_MOVE) {
+            if (event.getPointerCount() < 2 || pinchDist0 <= 1f) return;
+            float ratio = span(event) / pinchDist0;
+            float sp = Math.max(SP_MIN, Math.min(SP_MAX, pinchStartSp * ratio));
+            sp = Math.round(sp * 2f) / 2f;              // 0.5sp 一档，减少无谓重排
+            if (Math.abs(sp - bodySp) >= 0.49f) setBodyTextSize(sp);
+        } else if (action == MotionEvent.ACTION_POINTER_UP) {
+            notifyPinchEnd();           // 抬起一根手指就落盘，不等最后一根
+        } else if (action == MotionEvent.ACTION_UP
+                || action == MotionEvent.ACTION_CANCEL) {
+            pinching = false;           // 最后一根离开，手势彻底结束
+            notifyPinchEnd();
+        }
+    }
+
+    private void notifyPinchEnd() {
+        try {
+            if (listener != null) listener.onPinchEnd(bodySp);
+        } catch (Throwable t) {
+            android.util.Log.e("Suiji", "pinch end failed", t);
+        }
+    }
+
+    /** 两指间距（像素）。 */
+    private float span(MotionEvent e) {
+        if (e.getPointerCount() < 2) return 0f;
+        float dx = e.getX(0) - e.getX(1);
+        float dy = e.getY(0) - e.getY(1);
+        return (float) Math.hypot(dx, dy);
     }
 
     /** 本次手势是否已锁定为横向翻页。 */

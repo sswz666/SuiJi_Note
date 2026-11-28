@@ -29,8 +29,33 @@
         <item name="android:textColorHighlight">#334759B8</item>
     </style>
 
-    <!-- 只淡入 + 轻微上浮，没有任何 scale，保证桌面背景不“收缩” -->
-    <style name="CardWindowAnimation" parent="@android:style/Animation.Dialog">
+    <!--
+      只保留卡片自己的淡入上浮（window 级动画），
+      系统级的 activity / task / wallpaper 转场全部置空：
+      冷启动时不再播「图标展开成窗口」的缩放，卡片直接就在原位。
+      之前只定义了 window 级动画，activity/task 转场走系统默认，冷启动就是一次缩放。
+    -->
+    <style name="CardWindowAnimation" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@null</item>
+        <item name="android:activityOpenExitAnimation">@null</item>
+        <item name="android:activityCloseEnterAnimation">@null</item>
+        <item name="android:activityCloseExitAnimation">@null</item>
+        <item name="android:taskOpenEnterAnimation">@null</item>
+        <item name="android:taskOpenExitAnimation">@null</item>
+        <item name="android:taskCloseEnterAnimation">@null</item>
+        <item name="android:taskCloseExitAnimation">@null</item>
+        <item name="android:taskToFrontEnterAnimation">@null</item>
+        <item name="android:taskToFrontExitAnimation">@null</item>
+        <item name="android:taskToBackEnterAnimation">@null</item>
+        <item name="android:taskToBackExitAnimation">@null</item>
+        <item name="android:wallpaperOpenEnterAnimation">@null</item>
+        <item name="android:wallpaperOpenExitAnimation">@null</item>
+        <item name="android:wallpaperCloseEnterAnimation">@null</item>
+        <item name="android:wallpaperCloseExitAnimation">@null</item>
+        <item name="android:wallpaperIntraOpenEnterAnimation">@null</item>
+        <item name="android:wallpaperIntraOpenExitAnimation">@null</item>
+        <item name="android:wallpaperIntraCloseEnterAnimation">@null</item>
+        <item name="android:wallpaperIntraCloseExitAnimation">@null</item>
         <item name="android:windowEnterAnimation">@anim/card_in</item>
         <item name="android:windowExitAnimation">@anim/card_out</item>
     </style>
